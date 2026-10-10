@@ -4,93 +4,158 @@ public class Items
 {
     private Item[] allItem = new Item[10];
     private int size = 0;
+    // Counts purchased units, not array entries. A bundle contributes its full quantity.
     public HashMap<String, Integer> itemCounts = new HashMap<>();
 
-
+    // Adds one single or all units represented by a bundle.
     public void addItem(Item item)
     {
-        Item queuedItem;
+        int newCount = itemCounts.getOrDefault(item.getItemName(), 0) + quantityOf(item);
+
+        addAndSortItem(item);
         if (item instanceof SingleItem)
         {
-            addToItemCount(item);
-            queuedItem = convertIfBundlePossible((SingleItem) item);
+            formBundleIfPossible((SingleItem) item);
+        }
+        itemCounts.put(item.getItemName(), newCount);
+    }
 
-            if (queuedItem instanceof BundledItem)
+    private void formBundleIfPossible(SingleItem item)
+    {
+        if (!item.isBundlePossible() || item.getNumItemsNeededForBundle() < 2)
+        {
+            return;
+        }
+        int singles = 0;
+        for (int i = 0; i < size; i++)
+        {
+            if (allItem[i] instanceof SingleItem &&
+                allItem[i].getItemName().equals(item.getItemName()))
             {
-                for (int i = 0; i < ((BundledItem) queuedItem).getRemainingItemsIfBundleDisbanded(); i++)
-                {
-                    removeItem(queuedItem.getItemName());
-                }
+                singles++;
             }
         }
-
-        else
+        int bundleQuantity = item.getNumItemsNeededForBundle();
+        if (singles < bundleQuantity)
         {
-            queuedItem = item;
+            return;
         }
 
-        if (size == 0)
+        // Conversion changes array entries, never the purchased quantity.
+        int remaining = bundleQuantity;
+        for (int i = size - 1; i >= 0 && remaining > 0; i--)
         {
-            allItem[0] = queuedItem;
-            size++;
-        }
-        else if (size == allItem.length)
-        {
-            allItem = resize(allItem);
-            addItem(queuedItem);
-        }
-        else
-        {
-            for (int i = 0; i < size; i++)
+            if (allItem[i] instanceof SingleItem &&
+                allItem[i].getItemName().equals(item.getItemName()))
             {
-                addAndSortItem(queuedItem);
+                removeItem(i);
+                remaining--;
             }
-            size++;
         }
+        addAndSortItem(new BundledItem(item.getItemName(), item.getItemBundlePrice(),
+            item.getCostInCents(), bundleQuantity - 1, item.isOnSale()));
+    }
+
+    /** Removes one purchased unit, preferring a single before breaking one bundle. */
+    public void removeItem(String itemName)
+    {
+        int bundleIndex = -1;
+        for (int i = 0; i < size; i++)
+        {
+            if (!allItem[i].getItemName().equals(itemName))
+            {
+                continue;
+            }
+            if (allItem[i] instanceof SingleItem)
+            {
+                removeItem(allItem[i]);
+                return;
+            }
+            if (bundleIndex == -1)
+            {
+                bundleIndex = i;
+            }
+        }
+        if (bundleIndex == -1)
+        {
+            return;
+        }
+
+        BundledItem bundle = (BundledItem) allItem[bundleIndex];
+        removeItem(bundleIndex);
+        for (int i = 0; i < bundle.getRemainingItemsIfBundleDisbanded(); i++)
+        {
+            // These units already exist in the count; do not add or bundle them again.
+            addAndSortItem(new SingleItem(bundle.getItemName(), bundle.getItemSinglePrice(),
+                true, bundle.isOnSale(), bundle.getRemainingItemsIfBundleDisbanded() + 1,
+                bundle.getCostInCents()));
+        }
+        subtractUnits(itemName, 1);
+    }
+
+    /**
+     * Removes one occurrence of this exact object. Removing a bundle removes all
+     * its units without restoring singles. An object not in the list is a no-op.
+     */
+    public void removeItem(Item item)
+    {
+        for (int i = 0; i < size; i++)
+        {
+            if (allItem[i] == item)
+            {
+                removeItem(i);
+                subtractUnits(item.getItemName(), quantityOf(item));
+                return;
+            }
+        }
+    }
+
+    private void subtractUnits(String name, int quantity)
+    {
+        int remaining = itemCounts.get(name) - quantity;
+        if (remaining == 0)
+        {
+            itemCounts.remove(name);
+        }
+        else
+        {
+            itemCounts.put(name, remaining);
+        }
+    }
+
+    private static int quantityOf(Item item)
+    {
+        return item instanceof BundledItem ? ((BundledItem) item).getRemainingItemsIfBundleDisbanded() + 1 : 1;
     }
 
     private void addAndSortItem(Item item)
     {
-        int insertSize = size;
-
-        while (insertSize > 0 && allItem[insertSize - 1].getCostInCents() > item.getCostInCents())
+        if (size == allItem.length)
         {
-            allItem[insertSize] = allItem[insertSize - 1];
-            insertSize--;
+            allItem = resize(allItem);
         }
-
-        allItem[insertSize] = item;
+        int index = size;
+        while (index > 0 && allItem[index - 1].getCostInCents() < item.getCostInCents())
+        {
+            allItem[index] = allItem[index - 1];
+            index--;
+        }
+        allItem[index] = item;
+        size++;
     }
 
-    private Item convertIfBundlePossible(SingleItem item)
+    private void removeItem(int index)
     {
-        if (item.isBundlePossible())
+        if (index < 0 || index >= size)
         {
-            if (itemCounts.get(item.getItemName()) != 0
-                && itemCounts.get(item.getItemName()) % item.getNumItemsNeededForBundle() == 0)
-            {
-                String name = item.getItemName();
-                int bundledCostInCents = item.getItemBundlePrice();
-                int singleCostInCents = item.getCostInCents();
-                int numOfRemovedItems = item.getNumItemsNeededForBundle() - 1;
-                return new BundledItem(name, bundledCostInCents,
-                    singleCostInCents, numOfRemovedItems);
-            }
+            throw new IndexOutOfBoundsException("index: " + index + ", size: " + size);
         }
-
-        return item;
-    }
-
-    private void addToItemCount(Item item)
-    {
-        if (itemCounts.get(item.getItemName()) == null)
+        for (int i = index; i < size - 1; i++)
         {
-            itemCounts.put(item.getItemName(), 1);
+            allItem[i] = allItem[i + 1];
         }
-        else
-        {
-            itemCounts.put(item.getItemName(), itemCounts.get(item.getItemName()) + 1);
-        }
+        size--;
+        allItem[size] = null;
     }
 
     public boolean containsItem(Item item)
@@ -99,10 +164,9 @@ public class Items
         {
             if (allItem[i] == item)
             {
-                    return true;
+                return true;
             }
         }
-
         return false;
     }
 
@@ -117,101 +181,6 @@ public class Items
         }
 
         return false;
-    }
-
-    //TODO: streamline both remove methods and add more overloaded ones as see fit. Also fix any instance of between single and bundled items
-    //TODO: IMPORTANT: need to code bundle remover using hashmap data - which already updates
-
-    public void removeSingleItems(SingleItem targetItem)
-    {
-        int itemsToRemove = targetItem.getNumItemsNeededForBundle() - 1;
-        for (int i = 0; i < size && itemsToRemove > 0; i++)
-        {
-            if (allItem[i] instanceof SingleItem &&
-                allItem[i].getItemName().equals(targetItem.getItemName()))
-            {
-                removeItem(i);
-                i--;
-                itemsToRemove--;
-            }
-        }
-    }
-
-    public void removeBundledItem(BundledItem targetItem)
-    {
-        if (!(targetItem instanceof BundledItem))
-        {
-            throw new IllegalArgumentException("Item is not a BundledItem. It is a " +
-                targetItem.getClass().getName() + ".");
-        }
-
-        for (int i = 0; i < size && itemCounts.get(targetItem.getItemName()) > 0; i++)
-        {
-            if (allItem[i] instanceof BundledItem)
-            {
-                removeItem(i);
-                size--;
-                for (int j = targetItem.getRemainingItemsIfBundleDisbanded(); j > 0; j--)
-                {
-                    SingleItem tempSingle = new SingleItem(targetItem.getItemName(), targetItem.getItemSinglePrice(),
-                        true, false, targetItem.getRemainingItemsIfBundleDisbanded() + 1,
-                        targetItem.getCostInCents());
-                    addItem(tempSingle);
-                }
-                break;
-            }
-        }
-    }
-
-    public void removeItem(int index)
-    {
-        Item currentItem = allItem[index];
-        if (currentItem instanceof SingleItem)
-        {
-            if (itemCounts.get(allItem[index].getItemName()) != 0)
-            {
-                if (itemCounts.get(allItem[index].getItemName()) == 1)
-                {
-                    itemCounts.remove(allItem[index].getItemName());
-                }
-                else
-                {
-                    itemCounts.put(currentItem.getItemName(), itemCounts.get(currentItem.getItemName()) - 1);
-                }
-            }
-        }
-
-        for (int i = index; i < size - 1; i++)
-        {
-            allItem[i] = allItem[i + 1];
-        }
-
-        size--;
-        allItem[size] = null;
-    }
-
-    //removes the first index/one item only from the array
-    public void removeItem(Item item)
-    {
-        for (int i = 0; i < size; i++)
-        {
-            if (allItem[i].getItemName().equals(item.getItemName()))
-            {
-                removeItem(i);
-                break;
-            }
-        }
-    }
-
-    public void removeItem(String itemName)
-    {
-        for (int i = 0; i < size; i++)
-        {
-            if (allItem[i].getItemName().equals(itemName))
-            {
-                removeItem(i);
-            }
-        }
     }
 
     private static Item[] resize(Item[] currItems)

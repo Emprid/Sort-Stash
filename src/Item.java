@@ -2,6 +2,7 @@ public abstract class Item
 {
     private int costInCents;
     private String itemName;
+    private String urlLink;
 
     public Item(String itemName, int costInCents)
     {

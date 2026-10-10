@@ -45,7 +45,7 @@ public class SingleItem extends Item
                 ", Bundle price: " + itemBundlePrice);
         }
 
-        return ("|Item name: " + getItemName() + ", Cost: " + getCostInCents() + "Is on sale: "
+        return ("|Item name: " + getItemName() + ", Cost: " + getCostInCents() + ", Is on sale: "
             + isOnSale() + ", Is bundle: " + isBundlePossible() + bundleString + "|");
     }
 
